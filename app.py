@@ -3,40 +3,60 @@ import pickle
 import numpy as np
 import os
 import joblib
-
-
-from flask import Flask, render_template, request
-import joblib
-import numpy as np
-
 app = Flask(__name__)
+import pandas as pd
 
-model = joblib.load("gradient_boosting_model.pkl")
-scaler = joblib.load("scaler.pkl")
 
-@app.route("/")
+model = joblib.load('gradient_boosting_model.pkl')
+scaler = joblib.load('scaler.pkl')
+
+
+
+@app.route('/')
 def home():
-    return render_template("index.html")
+    return render_template('index.html')
 
-@app.route("/predict", methods=["POST"])
+@app.route('/predict', methods=['POST'])
 def predict():
-    values = [
-        float(request.form["gpa"]),
-        float(request.form["study_time"]),
-        float(request.form["absences"]),
-        int(request.form["volunteering"]),
-        int(request.form["extracurricular"]),
-        int(request.form["tutoring"]),
-    ]
-    
-    
-    input_scaled = scaler.transform([values])
-    prediction = model.predict(input_scaled)[0]
-    
-    result = "Pass" if prediction == 1 else "Fail"
-    return render_template("index.html", prediction=result)
+    try:
+        data = request.get_json()
+        print("Received JSON:", data)  # Log data
 
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        # Extract values
+        study_time = data.get('StudyTimeWeekly', 0)
+        absences = data.get('AbsencesPercentage', 0)
+        tutoring = 1 if data.get('Tutoring', 'No') == 'Yes' else 0
+        extracurricular = 1 if data.get('Extracurricular', 'No') == 'Yes' else 0
+        volunteering = 1 if data.get('Volunteering', 'No') == 'Yes' else 0
+
+        # Interaction terms
+        study_time_absences = study_time * absences
+        study_time_volunteering = study_time * volunteering
+        extracurricular_volunteering = extracurricular * volunteering
+
+        # DataFrame for prediction
+        input_df = pd.DataFrame([{
+            'StudyTimeWeekly': study_time,
+            'AbsencesPercentage': absences,
+            'Tutoring': tutoring,
+            'Extracurricular': extracurricular,
+            'Volunteering': volunteering,
+            'StudyTimeAbsences': study_time_absences,
+            'StudyTimeVolunteering': study_time_volunteering,
+            'ExtracurricularVolunteering': extracurricular_volunteering
+        }])
+
+        print("Input DataFrame:", input_df)
+
+        # Scale and predict
+        scaled_features = scaler.transform(input_df)
+        predicted_gpa = model.predict(scaled_features)[0]
+
+        return jsonify({'predicted_gpa': round(predicted_gpa, 2)})
+
+    except Exception as e:
+        print(f"Error in /predict route: {e}")  # Print detailed error
+        return jsonify({'error': str(e)}), 500
+
+
+
